@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @StateObject private var viewModel = ContentViewViewModel()
+    @State private var engine = SorterEngine()
     @State private var isTargeted = false
 
     var body: some View {
@@ -34,7 +34,7 @@ struct ContentView: View {
             HStack {
                 Image(systemName: "folder.fill")
                     .foregroundStyle(.blue)
-                Text(viewModel.engine.destinationURL.path)
+                Text(engine.destinationURL.path)
                     .font(.callout)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -83,28 +83,28 @@ struct ContentView: View {
             }
 
             // Progress Section
-            if viewModel.engine.isProcessing || viewModel.engine.processedFiles > 0 {
+            if engine.isProcessing || engine.processedFiles > 0 {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(viewModel.engine.isProcessing ? "Processing: \(viewModel.engine.currentFileName)" : "Completed")
+                        Text(engine.isProcessing ? "Processing: \(engine.currentFileName)" : "Completed")
                             .font(.caption)
                             .lineLimit(1)
                         Spacer()
-                        Text("\(viewModel.engine.processedFiles) of \(viewModel.engine.totalFiles)")
+                        Text("\(engine.processedFiles) of \(engine.totalFiles)")
                             .font(.caption)
                             .monospacedDigit()
                     }
-                    ProgressView(value: viewModel.engine.progressFraction)
+                    ProgressView(value: engine.progressFraction)
                         .progressViewStyle(.linear)
                 }
                 .padding(.horizontal)
             }
             
             // Error Console (only appears when errors exist)
-            if !viewModel.engine.errorLog.isEmpty {
+            if !engine.errorLog.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Label("Errors (\(viewModel.engine.errorLog.count))",
+                        Label("Errors (\(engine.errorLog.count))",
                               systemImage: "exclamationmark.triangle.fill")
                             .font(.caption.bold())
                             .foregroundStyle(.red)
@@ -112,7 +112,7 @@ struct ContentView: View {
                         Button("Copy All") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(
-                                viewModel.engine.errorLog.joined(separator: "\n"),
+                                engine.errorLog.joined(separator: "\n"),
                                 forType: .string
                             )
                         }
@@ -121,7 +121,7 @@ struct ContentView: View {
 
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(viewModel.engine.errorLog.enumerated()), id: \.offset) { _, message in
+                            ForEach(Array(engine.errorLog.enumerated()), id: \.offset) { _, message in
                                 Text(message)
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(.red)
@@ -151,16 +151,16 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("Export Log...") {
-                        viewModel.exportLog()
+                        exportLog()
                     }
                     .controlSize(.small)
-                    .disabled(viewModel.engine.statusLog.isEmpty || viewModel.engine.isProcessing)
+                    .disabled(engine.statusLog.isEmpty || engine.isProcessing)
                 }
 
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(viewModel.engine.statusLog.enumerated()), id: \.offset) { index, log in
+                            ForEach(Array(engine.statusLog.enumerated()), id: \.offset) { index, log in
                                 Text(log)
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(.secondary)
@@ -171,7 +171,7 @@ struct ContentView: View {
                     .padding(8)
                     .background(Color.black.opacity(0.8))
                     .cornerRadius(6)
-                    .onChange(of: viewModel.engine.statusLog.count) { _, newCount in
+                    .onChange(of: engine.statusLog.count) { _, newCount in
                         if newCount > 0 {
                             proxy.scrollTo(newCount - 1, anchor: .bottom)
                         }
@@ -191,7 +191,7 @@ struct ContentView: View {
         panel.canChooseFiles = false
         
         if panel.runModal() == .OK, let url = panel.url {
-            viewModel.engine.destinationURL = url
+            engine.destinationURL = url
         }
     }
 
@@ -214,13 +214,31 @@ struct ContentView: View {
 
         group.notify(queue: .main) {
             if !urls.isEmpty {
-                viewModel.engine.processDroppedURLs(urls)
+                engine.processDroppedURLs(urls)
             }
         }
         return true
     }
-}
 
-class ContentViewViewModel: ObservableObject {
-    @Published var engine = SorterService()
+    private func exportLog() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyy-MM-dd_HHmm"
+        panel.nameFieldStringValue = "Sorter Log \(stamp.string(from: Date())).txt"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        var text = engine.statusLog.joined(separator: "\n")
+        if !engine.errorLog.isEmpty {
+            text += "\n\n==== ERRORS (\(engine.errorLog.count)) ====\n"
+            text += engine.errorLog.joined(separator: "\n")
+        }
+
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
 }
